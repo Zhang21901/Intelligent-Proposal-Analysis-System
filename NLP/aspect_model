@@ -1,1 +1,30 @@
 
+import torch
+import torch.nn as nn
+from transformers import BertModel
+
+class HierarchicalBERTModel(nn.Module):
+    def __init__(self, bert_model_path, num_labels_per_level):
+        super(HierarchicalBERTModel, self).__init__()
+        self.bert = BertModel.from_pretrained(bert_model_path)
+        hidden_size = self.bert.config.hidden_size
+
+        self.aspect_classifiers = nn.ModuleList([
+            nn.Linear(hidden_size, num_labels) for num_labels in num_labels_per_level
+        ])
+        self.teaching_subcategory_classifier = nn.Linear(hidden_size, 4)
+
+    def forward(self, input_ids, attention_mask):
+        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        pooled_output = outputs.pooler_output  # [CLS] token's embedding
+
+        aspect_logits = []
+        features = pooled_output
+        for classifier in self.aspect_classifiers:
+            logits = classifier(features)
+            aspect_logits.append(logits)
+            features = nn.ReLU()(features)
+
+        teaching_subcategory_logits = self.teaching_subcategory_classifier(pooled_output)
+
+        return aspect_logits, teaching_subcategory_logits
